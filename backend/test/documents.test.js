@@ -141,6 +141,34 @@ test('contratos HTTP de documentos e armazenamento local', async (t) => {
     assert.deepEqual((await readdir(storageDirectory)).sort(), before);
   });
 
+  await t.test('limita campos multipart e remove o arquivo quando o formulário excede os limites', async () => {
+    const before = (await readdir(storageDirectory)).sort();
+    const atLimit = form();
+    for (let index = 0; index < 10; index++) atLimit.append(`field${index}`, 'a'.repeat(1024));
+    const accepted = await request('/upload', { method: 'POST', body: atLimit });
+    assert.equal(accepted.status, 201);
+    const { document: uploaded } = await accepted.json();
+    await repository.removeFile(filenames.get(uploaded.id));
+    const tooMany = form();
+    for (let index = 0; index < 11; index++) tooMany.append(`field${index}`, 'ignorado');
+    await expectError(await request('/upload', { method: 'POST', body: tooMany }), 400, 'INVALID_MULTIPART');
+    const tooLarge = form();
+    tooLarge.append('field', 'a'.repeat(1025));
+    await expectError(await request('/upload', { method: 'POST', body: tooLarge }), 400, 'INVALID_MULTIPART');
+    assert.deepEqual((await readdir(storageDirectory)).sort(), before);
+  });
+
+  await t.test('retorna erros JSON para falhas anteriores aos controllers', async () => {
+    await expectError(await request('/upload', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{',
+    }), 400, 'INVALID_JSON');
+    await expectError(await request('/upload', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ignored: 'a'.repeat(110000) }),
+    }), 413, 'REQUEST_TOO_LARGE');
+    await expectError(await request('/documents/%ZZ/download'), 400, 'INVALID_URL');
+  });
+
   await t.test('nome externo não define caminho e download usa cabeçalho seguro', async () => {
     const response = await request('/upload', {
       method: 'POST', body: form('outro', '../../relatório "final".txt'),
@@ -186,6 +214,30 @@ test('contratos HTTP de documentos e armazenamento local', async (t) => {
     await expectError(await request('/documents'), 500, 'DOCUMENT_LIST_FAILED');
     await expectError(await request(`/documents/${document.id}/download`), 500, 'DOWNLOAD_FAILED');
     assert.equal(log.mock.callCount(), 2);
+  });
+
+  await t.test('download preserva requisições parciais do Express', async () => {
+    const response = await request(`/documents/${document.id}/download`, { headers: { Range: 'bytes=0-2' } });
+    assert.equal(response.status, 206);
+    assert.equal(response.headers.get('content-range'), `bytes 0-2/${document.size}`);
+    assert.equal(await response.text(), 'con');
+  });
+
+  await t.test('falhas ao iniciar a transmissão não expõem cabeçalhos de arquivo no erro JSON', async (t) => {
+    const stat = t.mock.method(fs, 'stat', (filename, callback) => {
+      callback(Object.assign(new Error('arquivo removido durante o download'), { code: 'ENOENT' }));
+    });
+    const missing = await request(`/documents/${document.id}/download`);
+    await expectError(missing, 404, 'DOCUMENT_NOT_FOUND');
+    assert.equal(missing.headers.get('content-disposition'), null);
+    stat.mock.mockImplementation((filename, callback) => {
+      callback(Object.assign(new Error('leitura negada'), { code: 'EACCES' }));
+    });
+    const log = t.mock.method(console, 'error', () => {});
+    const denied = await request(`/documents/${document.id}/download`);
+    await expectError(denied, 500, 'DOWNLOAD_FAILED');
+    assert.equal(denied.headers.get('content-disposition'), null);
+    assert.equal(log.mock.callCount(), 1);
   });
 
   await t.test('arquivo removido retorna 404 e deixa de aparecer na lista', async () => {

@@ -1,6 +1,7 @@
 const express = require('express');
 const documentRoutes = require('./routes/documentRoutes');
 const ownerContext = require('./middleware/ownerContext');
+const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,6 +14,7 @@ app.get('/health', (req, res) => {
 });
 
 app.use(documentRoutes);
+app.use(errorHandler);
 
 if (require.main === module) {
   app.listen(PORT, () => {

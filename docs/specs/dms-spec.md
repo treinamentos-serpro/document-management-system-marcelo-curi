@@ -156,7 +156,7 @@ programático. O servidor não deve retornar detalhes internos em `message`.
 | HTTP | Código | Situação |
 | ---- | ------ | -------- |
 | `400` | `FILE_REQUIRED` | Campo `file` ausente ou arquivo vazio. |
-| `400` | `INVALID_MULTIPART` | Requisição multipart inválida ou múltiplos arquivos enviados. |
+| `400` | `INVALID_MULTIPART` | Multipart inválido, múltiplos arquivos ou limites de campos/partes excedidos. |
 | `413` | `FILE_TOO_LARGE` | Arquivo excede `MAX_FILE_SIZE_BYTES`. |
 | `500` | `UPLOAD_FAILED` | Falha ao gravar o arquivo ou registrar os metadados. |
 
@@ -206,6 +206,10 @@ programático. O servidor não deve retornar detalhes internos em `message`.
 | `DOCUMENT_LIST_FAILED` | Falha inesperada ao consultar os metadados. |
 | `DOCUMENT_NOT_FOUND` | Documento não encontrado, não pertencente ao usuário ou indisponível no filesystem. |
 | `DOWNLOAD_FAILED` | Falha inesperada ao transmitir o arquivo. |
+| `INVALID_JSON` | Corpo JSON malformado (`400`). |
+| `REQUEST_TOO_LARGE` | Corpo JSON acima do limite de 100 KiB do Express (`413`). |
+| `INVALID_URL` | Codificação inválida de parâmetro na URL (`400`). |
+| `REQUEST_FAILED` | Falha inesperada fora dos handlers de operação (`500`). |
 
 ## 7. Decisões arquiteturais
 
@@ -221,8 +225,26 @@ O fluxo de dependência é `routes -> controllers -> services -> repositories`.
 | `repositories/` | Persistir e recuperar arquivos em `backend/storage` com filesystem local e metadados em memória; ocultar esses detalhes das camadas internas. |
 
 O middleware de upload usa `multer` com `diskStorage`, limite configurado e
-nome interno gerado pelo sistema. O repositório expõe apenas operações
-necessárias ao serviço. O controller não acessa o filesystem diretamente.
+nome interno gerado pelo sistema. Sua configuração fica em `middleware/upload.js`,
+separada do repositório, com diretório e limite compartilhados por
+`config/storage.js`. São permitidos um arquivo, até 10 campos auxiliares de
+1 KiB cada; o parser interrompe o formulário ao atingir 12 partes multipart.
+Campos auxiliares não selecionam owner
+nem destino. Limites de upload não constituem quota total de armazenamento.
+
+O controller converte o arquivo recebido para `{ originalName, size, storageKey }`;
+o serviço não depende dos nomes de campos do Multer. O repositório valida as
+chaves UUID, resolve caminhos físicos e traduz ausência de arquivo para ausência
+de resultado; outras falhas de filesystem são propagadas. A listagem verifica
+arquivos em lotes com até 10 operações concorrentes, sem alterar o contrato
+de resposta completa e ordenada.
+
+O controller não acessa o filesystem diretamente. O caminho de download
+continua sendo encaminhado ao adaptador HTTP `res.download`, preservando a
+transmissão e o suporte a `Range` do Express; não é retornado ao cliente como
+metadado. Os controllers assíncronos usam o encaminhamento nativo de erros do
+Express 5. `middleware/errorHandler.js` centraliza status, códigos e mensagens,
+sem expor detalhes internos.
 
 ### Frontend
 
@@ -232,6 +254,10 @@ necessárias ao serviço. O controller não acessa o filesystem diretamente.
   propriedade ou persistência no navegador.
 - A interface deve permitir upload, listagem e download e apresentar erros
   recebidos da API sem expor detalhes internos.
+- O serviço valida envelopes e campos públicos obrigatórios antes de entregar
+  documentos aos componentes, incluindo tamanho inteiro seguro não negativo e
+  data UTC ISO 8601. `ApiError` preserva o status HTTP e o código do servidor
+  quando disponíveis. Cancelamentos não são convertidos em falhas de rede.
 
 ### Persistência e consistência
 
