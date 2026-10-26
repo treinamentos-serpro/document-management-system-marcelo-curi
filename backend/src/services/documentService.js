@@ -20,15 +20,15 @@ async function createDocument(file, owner) {
 
     const document = {
       id: randomUUID(),
-      originalName: file.originalname,
+      originalName: file.originalName,
       size: file.size,
       uploadedAt: new Date().toISOString(),
       owner,
     };
-    return await repository.save(document, file.filename);
+    return await repository.save(document, file.storageKey);
   } catch (error) {
     try {
-      await repository.removeFile(file.filename);
+      await repository.removeFile(file.storageKey);
     } catch (cleanupError) {
       console.error('Falha ao remover arquivo de upload incompleto:', cleanupError);
     }
@@ -52,15 +52,11 @@ async function getDownload(id, owner) {
     throw new DocumentError('DOCUMENT_NOT_FOUND', 'Documento não encontrado.');
   }
 
-  try {
-    const filePath = await repository.getDownloadPath(id);
-    return { document, filePath };
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      throw new DocumentError('DOCUMENT_NOT_FOUND', 'Documento não encontrado.');
-    }
-    throw error;
+  const filePath = await repository.getDownloadPath(id);
+  if (!filePath) {
+    throw new DocumentError('DOCUMENT_NOT_FOUND', 'Documento não encontrado.');
   }
+  return { document, filePath };
 }
 
 module.exports = { DocumentError, createDocument, listDocuments, getDownload };

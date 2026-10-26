@@ -40,6 +40,27 @@ e deve ser um inteiro positivo seguro; configuração inválida impede o início
 Falhas retornam `{ "error": { "code": "...", "message": "..." } }`, conforme a
 [especificação](docs/specs/dms-spec.md).
 
+O multipart aceita um arquivo e até 10 campos auxiliares de até 1 KiB cada;
+esses campos não definem proprietário ou destino. O parser também interrompe
+formulários que atinjam 12 partes. Formulários que excedem os limites são rejeitados com
+`400 INVALID_MULTIPART`, com tentativa de remoção do arquivo rejeitado.
+
+A configuração do armazenamento fica em `backend/src/config/storage.js`; o
+Multer fica no middleware de entrada, não no repositório. Controllers convertem
+os dados do Multer para `{ originalName, size, storageKey }` antes de chamar o
+serviço. O repositório valida as chaves internas UUID e verifica os arquivos da
+listagem em lotes de até 10, preservando a resposta completa e sua ordenação.
+Erros HTTP são tratados por um middleware central, inclusive JSON e URLs
+malformados. O download continua usando o Express, com suporte a requisições
+parciais (`Range`).
+
+Esta fase continua sem autenticação, quota total ou recuperação de metadados.
+O limite por arquivo e os limites multipart não impedem uploads repetidos de
+esgotarem o disco. Use apenas um processo backend, proteja a API na
+infraestrutura, limite frequência/concorrência no proxy e monitore espaço livre.
+Arquivos órfãos após reinício exigem uma política operacional de limpeza;
+não são apagados automaticamente.
+
 ## Frontend DMS
 
 Execute `npm run dev` em `frontend` e abra `http://localhost:5173`.
@@ -51,6 +72,11 @@ A interface permite enviar um arquivo, atualiza a lista após o envio e baixa
 os documentos com seus nomes originais. Estados de carregamento, lista vazia e
 erros são exibidos em português; a lista pode ser atualizada manualmente para
 tentar novamente após uma falha.
+
+O serviço de API valida os envelopes e metadados recebidos antes de entregá-los
+à interface. Respostas JSON válidas com estrutura inválida são apresentadas como
+erro, em vez de causarem falhas de renderização. `ApiError` preserva `status` e
+`code` quando disponíveis; cancelamentos continuam sendo propagados.
 
 O cliente não envia um proprietário nem implementa autenticação. O owner é
 definido exclusivamente pelo backend e compartilhado por todas as chamadas à
