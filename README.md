@@ -33,5 +33,10 @@
 
 ---
 
-&copy; 2025 GitHub &bull; [Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/code_of_conduct.md) &bull; [MIT License](https://gh.io/mit)
+## Integração contínua
 
+O workflow [CI](.github/workflows/ci.yml) executa em todo `push` e
+`pull_request`, usando Node.js 24. Instala as dependências do backend e do
+frontend com `npm ci`, gera o build do frontend e executa `npm test` no backend.
+
+&copy; 2025 GitHub &bull; [Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/code_of_conduct.md) &bull; [MIT License](https://gh.io/mit)
