@@ -85,4 +85,15 @@ instância.
 Execute `npm test` em `frontend` para validar o cliente de API e `npm run build`
 para gerar o bundle de produção.
 
+## Integração contínua
+
+O workflow [CI](.github/workflows/ci.yml) executa em todo `push` e
+`pull_request`, usando Node.js 24. Instala as dependências do backend e do
+frontend com `npm ci`, gera o build do frontend e executa `npm test` no backend.
+
+Os testes de integração do backend exercitam upload multipart, listagem e
+download via HTTP, incluindo validações de entrada, ordenação, arquivos
+binários com nomes repetidos e erros de armazenamento. Os arquivos criados
+pelos testes são removidos ao final.
+
 &copy; 2025 GitHub &bull; [Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/code_of_conduct.md) &bull; [MIT License](https://gh.io/mit)
