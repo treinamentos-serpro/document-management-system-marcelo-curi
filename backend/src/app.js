@@ -1,10 +1,12 @@
 const express = require('express');
 const documentRoutes = require('./routes/documentRoutes');
+const ownerContext = require('./middleware/ownerContext');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+app.use(ownerContext);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });

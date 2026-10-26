@@ -5,13 +5,6 @@ function sendError(res, status, code, message) {
   return res.status(status).type('json').json({ error: { code, message } });
 }
 
-function requireUser(req, res, next) {
-  if (typeof req.user?.id !== 'string' || !req.user.id.trim()) {
-    return sendError(res, 401, 'UNAUTHENTICATED', 'Usuário não identificado.');
-  }
-  next();
-}
-
 function handleError(error, res, next, code, message) {
   if (res.headersSent) return next(error);
   if (error instanceof service.DocumentError) {
@@ -37,7 +30,7 @@ function uploadError(error, req, res, next) {
 
 async function uploadDocument(req, res, next) {
   try {
-    const document = await service.createDocument(req.file, req.user.id);
+    const document = await service.createDocument(req.file, req.ownerId);
     res.status(201).json({ document });
   } catch (error) {
     handleError(error, res, next, 'UPLOAD_FAILED', 'Não foi possível enviar o documento.');
@@ -46,7 +39,7 @@ async function uploadDocument(req, res, next) {
 
 async function listDocuments(req, res, next) {
   try {
-    const documents = await service.listDocuments(req.user.id);
+    const documents = await service.listDocuments(req.ownerId);
     res.json({ documents });
   } catch (error) {
     handleError(error, res, next, 'DOCUMENT_LIST_FAILED', 'Não foi possível listar os documentos.');
@@ -55,7 +48,7 @@ async function listDocuments(req, res, next) {
 
 async function downloadDocument(req, res, next) {
   try {
-    const { document, filePath } = await service.getDownload(req.params.id, req.user.id);
+    const { document, filePath } = await service.getDownload(req.params.id, req.ownerId);
     res.download(filePath, document.originalName, {
       headers: { 'Content-Type': 'application/octet-stream' },
     }, (error) => {
@@ -70,4 +63,4 @@ async function downloadDocument(req, res, next) {
   }
 }
 
-module.exports = { requireUser, uploadError, uploadDocument, listDocuments, downloadDocument };
+module.exports = { uploadError, uploadDocument, listDocuments, downloadDocument };

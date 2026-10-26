@@ -35,15 +35,12 @@ memória.
 
 ### Premissas de identidade e propriedade
 
-- Um componente de autenticação/identidade existente fornece um identificador
-  confiável do usuário no contexto da requisição, por exemplo
-  `req.user.id`. Sua implementação não faz parte desta especificação.
-- O identificador `owner` é obtido desse contexto, nunca de um campo enviado
-  pelo cliente. Se o contexto não estiver disponível, a requisição é recusada
-  com `401`.
-- Listagem e download são sempre limitados ao proprietário. Um documento
-  inexistente ou pertencente a outro usuário produz a mesma resposta `404`,
-  sem revelar sua existência.
+- O backend obtém o identificador `owner` de `DOCUMENT_OWNER_ID`, configurado no
+  servidor, com padrão `default` quando a variável não estiver definida.
+- O cliente nunca define o owner por campo, query parameter ou cabeçalho.
+- Esta fase usa um owner único por instância, sem autenticação ou isolamento
+  entre clientes. Todas as chamadas à instância podem operar nos mesmos
+  documentos; proteção de acesso é responsabilidade da infraestrutura.
 
 ## 3. Requisitos funcionais
 
@@ -52,11 +49,11 @@ memória.
 | RF-01  | O usuário pode enviar um arquivo usando o campo multipart `file`. A requisição aceita exatamente um arquivo. |
 | RF-02  | O sistema rejeita upload sem arquivo, com mais de um arquivo ou acima do limite configurado, informando um erro HTTP apropriado. |
 | RF-03  | No upload bem-sucedido, o sistema gera um identificador único, registra os metadados em memória, grava o arquivo no armazenamento local e retorna `201 Created` com os metadados. |
-| RF-04  | O sistema associa cada documento ao usuário fornecido pelo contexto confiável da requisição; o cliente não pode atribuir ou alterar `owner`. |
-| RF-05  | O usuário pode listar todos os documentos que lhe pertencem. A resposta é ordenada por `uploadedAt` decrescente e, em caso de empate, por `id` crescente. |
-| RF-06  | A listagem de um usuário nunca inclui documentos de outros usuários. Se não houver documentos, retorna uma lista vazia com `200 OK`. |
-| RF-07  | O usuário pode baixar um documento próprio informando seu identificador. A resposta contém o conteúdo binário e usa o nome original como nome de download. |
-| RF-08  | O sistema retorna `404 Not Found` tanto para identificador desconhecido quanto para documento de outro usuário. |
+| RF-04  | O sistema associa cada documento ao owner configurado no servidor; o cliente não pode atribuir ou alterar `owner`. |
+| RF-05  | A API lista todos os documentos da instância. A resposta é ordenada por `uploadedAt` decrescente e, em caso de empate, por `id` crescente. |
+| RF-06  | Todas as chamadas da instância usam o mesmo owner. Se não houver documentos, a listagem retorna uma lista vazia com `200 OK`. |
+| RF-07  | A API permite baixar um documento da instância informando seu identificador. A resposta contém o conteúdo binário e usa o nome original como nome de download. |
+| RF-08  | O sistema retorna `404 Not Found` para identificador desconhecido ou documento indisponível. |
 | RF-09  | Se a gravação do arquivo ou o registro de metadados falhar durante o upload, a operação não é considerada concluída; um arquivo parcial ou sem metadados deve ser removido quando possível e o erro deve ser reportado. |
 | RF-10  | O frontend permite selecionar e enviar um arquivo, apresenta o resultado da operação, atualiza a lista após upload bem-sucedido e permite iniciar o download dos documentos listados. |
 | RF-11  | O frontend informa os estados de carregamento, lista vazia e falha de rede/servidor sem apresentar uma operação com falha como bem-sucedida. |
@@ -99,7 +96,7 @@ repositório.
 | `originalName` | string | Sim | Nome original informado no upload, mantido apenas como metadado e nome de apresentação/download. |
 | `size` | number | Sim | Tamanho do arquivo persistido em bytes; inteiro não negativo. |
 | `uploadedAt` | string | Sim | Data/hora de recebimento do upload em ISO 8601 UTC, por exemplo `2026-10-26T19:17:06.198Z`. |
-| `owner` | string | Sim | Identificador do usuário obtido do contexto confiável da requisição. |
+| `owner` | string | Sim | Identificador configurado pelo servidor via `DOCUMENT_OWNER_ID` (padrão `default`). |
 
 O caminho/nome interno usado no filesystem é detalhe de persistência do
 repositório e não deve ser incluído na representação pública do documento.
@@ -160,13 +157,12 @@ programático. O servidor não deve retornar detalhes internos em `message`.
 | ---- | ------ | -------- |
 | `400` | `FILE_REQUIRED` | Campo `file` ausente ou arquivo vazio. |
 | `400` | `INVALID_MULTIPART` | Requisição multipart inválida ou múltiplos arquivos enviados. |
-| `401` | `UNAUTHENTICATED` | Contexto confiável de usuário ausente. |
 | `413` | `FILE_TOO_LARGE` | Arquivo excede `MAX_FILE_SIZE_BYTES`. |
 | `500` | `UPLOAD_FAILED` | Falha ao gravar o arquivo ou registrar os metadados. |
 
 ### GET `/documents`
 
-- **Objetivo:** listar documentos do usuário do contexto da requisição.
+- **Objetivo:** listar documentos associados ao owner configurado para a instância.
 - **Entrada:** sem corpo. Não aceita parâmetro para selecionar outro proprietário.
 - **Sucesso — `200 OK`:**
 
@@ -185,21 +181,18 @@ programático. O servidor não deve retornar detalhes internos em `message`.
 ```
 
 - Quando não houver documentos, retornar `{"documents":[]}`.
-- **Erros:** `401 UNAUTHENTICATED` quando o contexto de usuário estiver ausente;
-  `500 DOCUMENT_LIST_FAILED` em falha inesperada ao obter a lista.
+- **Erros:** `500 DOCUMENT_LIST_FAILED` em falha inesperada ao obter a lista.
 
 ### GET `/documents/:id/download`
 
-- **Objetivo:** transmitir o arquivo correspondente, somente se pertencer ao
-  usuário do contexto.
+- **Objetivo:** transmitir o arquivo correspondente ao owner da instância.
 - **Entrada:** `id` no caminho; não aceita caminho de filesystem do cliente.
 - **Sucesso — `200 OK`:** corpo binário, `Content-Type:
   application/octet-stream`, `Content-Length` correspondente ao tamanho
   armazenado e `Content-Disposition: attachment` com `originalName` codificado
   com segurança.
-- **Erros:** `401 UNAUTHENTICATED` sem contexto de usuário; `404
-  DOCUMENT_NOT_FOUND` quando o documento não existir, pertencer a outro usuário
-  ou não puder ser localizado no armazenamento; `500 DOWNLOAD_FAILED` em falha
+- **Erros:** `404 DOCUMENT_NOT_FOUND` quando o documento não existir ou não
+  puder ser localizado no armazenamento; `500 DOWNLOAD_FAILED` em falha
   inesperada de leitura. Respostas de erro usam o formato JSON padrão.
 
 ### Códigos de erro
@@ -208,7 +201,6 @@ programático. O servidor não deve retornar detalhes internos em `message`.
 | ------ | ----------- |
 | `FILE_REQUIRED` | Arquivo obrigatório ausente ou vazio. |
 | `INVALID_MULTIPART` | Formato multipart inválido ou quantidade de arquivos não permitida. |
-| `UNAUTHENTICATED` | Não há usuário confiável associado à requisição. |
 | `FILE_TOO_LARGE` | Limite configurado de upload excedido. |
 | `UPLOAD_FAILED` | Falha durante gravação ou registro do upload. |
 | `DOCUMENT_LIST_FAILED` | Falha inesperada ao consultar os metadados. |
@@ -224,7 +216,7 @@ O fluxo de dependência é `routes -> controllers -> services -> repositories`.
 | Camada | Responsabilidade |
 | ------ | ---------------- |
 | `routes/` | Declarar `/upload`, `/documents` e `/documents/:id/download`; conectar middlewares e controllers sem regras de negócio. |
-| `controllers/` | Ler os dados HTTP, usar o contexto confiável do usuário, validar formato básico da requisição e mapear resultado/erro para status e resposta HTTP. |
+| `controllers/` | Ler os dados HTTP, usar o owner atribuído pelo backend, validar formato básico da requisição e mapear resultado/erro para status e resposta HTTP. |
 | `services/` | Aplicar regras de upload, propriedade, listagem e download; não depender de Express ou de detalhes de persistência. |
 | `repositories/` | Persistir e recuperar arquivos em `backend/storage` com filesystem local e metadados em memória; ocultar esses detalhes das camadas internas. |
 
@@ -257,15 +249,15 @@ As etapas abaixo orientam uma implementação futura e **não fazem parte da
 execução desta tarefa**, cujo entregável é somente este documento.
 
 1. Definir e testar o modelo de metadados, os códigos de erro e as regras de
-   propriedade, incluindo obtenção do usuário por contexto confiável.
+   propriedade, incluindo a configuração server-side do owner.
 2. Implementar o repositório local: `diskStorage` do Multer, diretório
    `backend/storage`, metadados em memória e tratamento de falhas/limites.
 3. Implementar os serviços de upload, listagem e download sem dependência de
    HTTP ou Express.
 4. Implementar controllers e rotas Express para os três contratos, incluindo
-   mapeamento consistente de erros e isolamento por proprietário.
+   mapeamento consistente de erros e uso do owner configurado na instância.
 5. Cobrir regras e contratos do backend com testes unitários e de integração,
-   incluindo falhas de filesystem, limites e tentativas de acesso entre usuários.
+   incluindo falhas de filesystem, limites e tentativas de alterar owner pelo cliente.
 6. Construir a interface React para upload, listagem, estados de carregamento e
    vazio, erros e download.
 7. Integrar o frontend pela API `/api` via proxy Vite e validar o fluxo completo
