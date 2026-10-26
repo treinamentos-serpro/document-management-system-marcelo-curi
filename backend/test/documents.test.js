@@ -107,6 +107,49 @@ test('contratos HTTP de documentos e armazenamento local', async (t) => {
     await expectError(await request('/documents/unknown/download'), 404, 'DOCUMENT_NOT_FOUND');
   });
 
+  const binaryContents = [
+    new Uint8Array([0, 1, 127, 128, 255]),
+    new Uint8Array([255, 128, 127, 1, 0, 42]),
+  ];
+  const binaryDocuments = [];
+
+  await t.test('upload aceita arquivos binários com o mesmo nome e gera ids distintos', async () => {
+    for (const content of binaryContents) {
+      const response = await request('/upload', {
+        method: 'POST', body: form(content, 'arquivo.bin'),
+      });
+      assert.equal(response.status, 201);
+      assert.match(response.headers.get('content-type'), /application\/json/);
+      const { document: uploaded } = await response.json();
+      assert.equal(uploaded.originalName, 'arquivo.bin');
+      assert.equal(uploaded.size, content.byteLength);
+      assert.equal(uploaded.owner, document.owner);
+      assert.notEqual(uploaded.id, document.id);
+      binaryDocuments.push(uploaded);
+    }
+    assert.notEqual(binaryDocuments[0].id, binaryDocuments[1].id);
+  });
+
+  await t.test('listagem inclui todos os uploads em ordem decrescente com desempate por id', async () => {
+    const response = await request('/documents');
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /application\/json/);
+    const expected = [document, ...binaryDocuments].sort((left, right) =>
+      right.uploadedAt.localeCompare(left.uploadedAt) || left.id.localeCompare(right.id));
+    assert.deepEqual(await response.json(), { documents: expected });
+  });
+
+  await t.test('download por id preserva os bytes de cada arquivo com nome repetido', async () => {
+    for (const [index, uploaded] of binaryDocuments.entries()) {
+      const response = await request(`/documents/${uploaded.id}/download`);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('content-type'), 'application/octet-stream');
+      assert.equal(response.headers.get('content-length'), String(uploaded.size));
+      assert.match(response.headers.get('content-disposition'), /^attachment; filename="arquivo.bin"/);
+      assert.deepEqual(new Uint8Array(await response.arrayBuffer()), binaryContents[index]);
+    }
+  });
+
   await t.test('rejeita upload ausente, vazio, múltiplo, campo errado e multipart inválido', async () => {
     const before = (await readdir(storageDirectory)).sort();
     await expectError(await request('/upload', { method: 'POST' }), 400, 'FILE_REQUIRED');
