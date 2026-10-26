@@ -12,5 +12,51 @@ Remember, it's self-paced so feel free to take a break! ☕️
 
 ---
 
-&copy; 2025 GitHub &bull; [Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/code_of_conduct.md) &bull; [MIT License](https://gh.io/mit)
+## Backend DMS
 
+Execute `npm start` em `backend` (porta padrão `3000`, configurável por `PORT`).
+Execute `npm test` no mesmo diretório para validar o backend.
+
+- `POST /upload`: recebe um arquivo não vazio no campo multipart `file` e retorna
+  `201` com `{ "document": { ... } }`.
+- `GET /documents`: retorna `{ "documents": [...] }` do owner configurado,
+  em ordem de envio decrescente.
+- `GET /documents/:id/download`: baixa um documento da instância com o nome
+  original; documentos inexistentes retornam `404`.
+- `GET /health`: mantém a verificação de saúde pública.
+
+O backend associa todos os documentos a `DOCUMENT_OWNER_ID`, configurável no
+servidor (padrão: `default`). As rotas não dependem de `req.user.id` nem exigem
+contexto de identidade externo. Campos, query parameters ou cabeçalhos enviados
+pelo cliente não definem o owner. Esta configuração identifica a instância, não
+autentica clientes: todas as chamadas que alcançam o backend compartilham os
+mesmos documentos; configure controle de acesso na infraestrutura se necessário.
+
+Os arquivos são gravados exclusivamente em `backend/storage`, criado
+automaticamente, com nomes internos UUID. Os metadados ficam em memória e se
+perdem ao reiniciar o processo; arquivos remanescentes não reaparecem na API.
+`MAX_FILE_SIZE_BYTES` configura o limite por arquivo (padrão: `10485760`, 10 MiB)
+e deve ser um inteiro positivo seguro; configuração inválida impede o início.
+Falhas retornam `{ "error": { "code": "...", "message": "..." } }`, conforme a
+[especificação](docs/specs/dms-spec.md).
+
+## Frontend DMS
+
+Execute `npm run dev` em `frontend` e abra `http://localhost:5173`.
+O proxy Vite encaminha `/api` para `http://localhost:3000`, removendo o prefixo.
+Em produção, configure o servidor web para encaminhar `/api` ao backend da
+mesma forma; o proxy de desenvolvimento não faz parte do build.
+
+A interface permite enviar um arquivo, atualiza a lista após o envio e baixa
+os documentos com seus nomes originais. Estados de carregamento, lista vazia e
+erros são exibidos em português; a lista pode ser atualizada manualmente para
+tentar novamente após uma falha.
+
+O cliente não envia um proprietário nem implementa autenticação. O owner é
+definido exclusivamente pelo backend e compartilhado por todas as chamadas à
+instância.
+
+Execute `npm test` em `frontend` para validar o cliente de API e `npm run build`
+para gerar o bundle de produção.
+
+&copy; 2025 GitHub &bull; [Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/code_of_conduct.md) &bull; [MIT License](https://gh.io/mit)
