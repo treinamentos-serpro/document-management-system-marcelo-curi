@@ -219,7 +219,7 @@ test('configuração inválida impede a inicialização com erro explícito', ()
 });
 
 test('owner é configurado pelo servidor e usa default quando variável ausente', () => {
-  const source = "const middleware=require('./src/middleware/ownerContext');const req={};middleware(req,{},()=>{});process.stdout.write(req.ownerId)";
+  const source = "const middleware=require('./src/middleware/ownerContext');const req={ownerId:'client-owner',headers:{'x-owner-id':'header-owner'}};let nextCalls=0;middleware(req,{},()=>nextCalls++);process.stdout.write(`${req.ownerId}:${nextCalls}`)";
   const configuredEnvironment = { ...process.env, DOCUMENT_OWNER_ID: 'tenant-42' };
   const configured = spawnSync(process.execPath, ['-e', source], {
     cwd: path.resolve(__dirname, '..'),
@@ -227,7 +227,7 @@ test('owner é configurado pelo servidor e usa default quando variável ausente'
     encoding: 'utf8',
   });
   assert.equal(configured.status, 0, configured.stderr);
-  assert.equal(configured.stdout, 'tenant-42');
+  assert.equal(configured.stdout, 'tenant-42:1');
 
   const defaultEnvironment = { ...process.env };
   delete defaultEnvironment.DOCUMENT_OWNER_ID;
@@ -237,5 +237,5 @@ test('owner é configurado pelo servidor e usa default quando variável ausente'
     encoding: 'utf8',
   });
   assert.equal(fallback.status, 0, fallback.stderr);
-  assert.equal(fallback.stdout, 'default');
+  assert.equal(fallback.stdout, 'default:1');
 });
